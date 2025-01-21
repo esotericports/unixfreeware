@@ -1,0 +1,258 @@
+#!/bin/sh
+# ufw_testbaselibs V1.0 2005/08/11 by Tobias Paprotta (paprotta@nano.uni-hannover.de)
+# This performs some sanity checks, then creates subdirectories and populates them 
+# with distfile templates.
+
+testbaselibs ()
+# tests whether any files were linked against libjpeg/png/zlib from base 
+# IRIX
+{
+  if (find . -perm -111 ! -type d ! -type l ! -name "*.la" -exec ldd {} \;|grep "lib32" |grep -q -E "libjpeg|libpng|libz"); then
+    /usr/bin/banner warning
+    echo -n "You are linking against"
+    find . -perm -111 ! -type d ! -type l !-name "*.la" -exec ldd {} \;|grep "lib32" |grep -E "libjpeg|libpng|libz"
+    echo " "
+    echo "This is NOT good. So don't."
+    return `false`
+  else
+    return `true`
+  fi
+}
+
+createrelnotes()
+# This creates a releasenote file, based on Joerg Behrens' template,
+# available from http://www.irixworld.net/nekoware/docs/
+{
+  echo "PACKAGE NAME\n"
+  echo "ufw_$UFWPKGNAME"
+  
+  echo "\nSOURCE/VERSION\n"
+  echo $UFWPKGNAME-$UFWPKGVERSION
+
+  echo "\nDESCRIPTION\n"
+
+  echo "\nENVIRONMENT VARIABLES\n"
+  echo setenv CC $CC
+  echo setenv CXX $CXX
+  echo setenv CPP $CPP
+  echo setenv CFLAGS $CFLAGS
+  echo setenv CPPFLAGS $CPPFLAGS
+  echo setenv CXXFLAGS $CXXFLAGS
+  echo setenv LDFLAGS $LDFLAGS
+  echo setenv PKG_CONFIG $PKG_CONFIG
+  echo setenv PKG_CONFIG_PATH $PKG_CONFIG_PATH
+  echo setenv PKG_CONFIG_LIBDIR $PKG_CONFIG_LIBDIR
+  echo setenv LD_LIBRARY_PATH $LD_LIBRARY_PATH
+  echo setenv LD_LIBRARYN32_PATH $LD_LIBRARYN32_PATH
+  echo setenv LD_LIBRARY64_PATH $LD_LIBRARY64_PATH
+
+  echo "\nCONFIGURE FLAGS\n"
+  echo ./configure --prefix=/usr/nekoware
+
+  echo "\nKNOWN DEPENDANCIES\n"
+
+if (find . -perm -111 ! -type d ! -type l ! -name "*.la" -exec ldd {} \; |grep nekoware); then
+  find . -perm -111 ! -type d ! -type li ! -name "*.la" -exec ldd {} \; | awk '{print $3}' | grep nekoware | xargs showfiles -- | grep "f " | awk '{print $4}' | xargs versions -n | grep "I  " | awk '{print $4}' | sed -n "{p;n;n;}" | tr '\n' ' ' |sed -e 's/ /\, /g'
+else
+  echo "none"
+  echo "\n\nERRORS/MISCELLANEOUS\n"                      
+                                  
+  echo "\nPACKAGED BY\n"
+  echo "$NEKOBUILDER $NEKOBUILDERCONTACT"
+fi
+
+  echo "\n\nERRORS/MISCELLANEOUS\n"
+
+  echo "\nPACKAGED BY\n"
+  echo "$NEKOBUILDER $NEKOBUILDERCONTACT"
+}
+
+getversion ()
+# Returns installed version of given package +1, else returns 1
+{
+  if (versions -bn ufw_$UFWPKGNAME|grep -q "ufw_$UFWPKGNAME "); then
+     INSTVER=`versions -bn ufw_$UFWPKGNAME | grep "ufw_$UFWPKGNAME " | awk '{print $3}'`
+     echo `expr $INSTVER + 1`
+  else
+     echo "1"
+  fi
+}
+
+bindepends ()
+# Lists dependencies of executable files -dirs and libraries in specfile format
+{
+  if (find . -perm +0111 ! -type d ! -name "*.so*" ! -name "*.la*" -exec ldd {} \; | grep -v $UFWPKGNAME | grep -q nekoware); then
+    echo "prereq"
+    echo "("
+    find . -perm +0111 ! -type d ! -name "*.so*" ! -name "*.la*" -exec ldd {} \; | grep nekoware | awk '{print $3}' | xargs showfiles -- | grep 'f ' | awk '{print $4}' | xargs versions -M -n | grep "sw.lib"| awk '{print $2 " " $3 " maxint"}'
+    echo ")"
+  fi
+}
+
+libdepends ()
+# List dependencies of dynamical libraries in specfile format
+{
+  if (find . -name "*.so" -exec ldd {} \; | grep -v $UFWPKGNAME | grep -q nekoware); then
+    echo "prereq"
+    echo "("
+    find . -name "*.so" -exec ldd {} \; | grep nekoware | awk '{print $3}' | xargs showfiles -- | grep 'f ' | awk '{print $4}' | xargs versions -M -n | grep "sw.lib"| awk '{print $2 " " $3 " maxint"}'
+    echo ")"
+  fi
+}
+
+createspec ()
+{
+  VERSION=`getversion`
+
+  echo "product ufw_$UFWPKGNAME"
+  echo "    id \"$UFWPKGNAME-$UFWPKGVERSION\""
+
+
+  echo "        image sw"
+  echo "        id \"software\""
+  echo "        version $VERSION"
+  echo "        order 9999"
+
+  echo "        subsys eoe default"
+  echo "            id \"execution only env\""
+  echo "            replaces self"
+  bindepends
+  echo "            exp ufw_$UFWPKGNAME.sw.eoe"
+  echo "        endsubsys"
+
+  echo "        subsys hdr default"
+  echo "            id \"header\""
+  echo "            replaces self"
+  echo "            exp ufw_$UFWPKGNAME.sw.hdr"
+  echo "        endsubsys"
+
+  echo "        subsys lib default"
+  echo "            id \"shared libraries\""
+  echo "            replaces self"
+  libdepends
+  echo "            exp ufw_$UFWPKGNAME.sw.lib"
+  echo "        endsubsys"
+  echo "    endimage"
+
+  echo "    image man"
+  echo "        id \"man pages\""
+  echo "        version $VERSION"
+  echo "        order 9999"
+
+  echo "        subsys manpages default"
+  echo "            id \"man pages\""
+  echo "            replaces self"
+  echo "            exp ufw_$UFWPKGNAME.man.manpages"
+  echo "        endsubsys"
+
+  echo "        subsys html default"
+  echo "            id \"html documentation\""
+  echo "            replaces self"
+  echo "            exp ufw_$UFWPKGNAME.man.html"
+  echo "        endsubsys"
+
+  echo "    endimage"
+
+
+  echo "    image opt"
+  echo "        id \"optional software\""
+  echo "        version $VERSION"
+  echo "        order 9999"
+
+  echo "        subsys relnotes"
+  echo "            id \"release notes\""
+  echo "            replaces self"
+  echo "            exp ufw_$UFWPKGNAME.opt.relnotes"
+  echo "        endsubsys"
+
+  echo "        subsys src"
+  echo "            id \"original source code\""
+  echo "            replaces self"
+  echo "            exp ufw_$UFWPKGNAME.opt.src"
+  echo "        endsubsys"
+
+  echo "        subsys dist"
+  echo "            id \"distribution files\""
+  echo "            replaces self"
+  echo "            exp ufw_$UFWPKGNAME.opt.dist"
+  echo "        endsubsys"
+
+  echo "        subsys patches"
+  echo "            id \"source code patches\""
+  echo "            replaces self"
+  echo "            exp ufw_$UFWPKGNAME.opt.patches"
+  echo "        endsubsys"
+
+  echo "    endimage"
+
+  echo "endproduct"
+}
+
+populate()
+{
+if testbaselibs; then
+  # Test whether subdirs exist, if not, create them
+  if (! /sbin/test -d dist); then
+    mkdir dist 
+  fi
+  if (! /sbin/test -d src); then
+    mkdir src    
+  fi
+  if (! /sbin/test -d relnotes); then
+    mkdir relnotes     
+  fi
+  if (! /sbin/test -d patches); then
+    mkdir patches
+  fi
+
+  # Create a release notes file, if it does not already exists.
+  if (! /sbin/test -f ./relnotes/ufw_$UFWPKGNAME.txt); then
+    touch ./relnotes/ufw_$UFWPKGNAME.txt
+    createrelnotes > ./relnotes/ufw_$UFWPKGNAME.txt
+    while true; do
+      echo -n "Edit ./relnotes/ufw_$UFWPKGNAME.txt using ${EDITOR:-vi} now? (y/n) "
+      read yn
+      case $yn in
+        y* | Y* ) ${EDITOR:-vi} ./relnotes/ufw_$UFWPKGNAME.txt ; break;;
+        n* | N* ) break ;;
+        * ) echo "Answer y/n only" ;;
+      esac
+    done
+  fi 
+
+  # Create a .idb-file, if it does not yet exists.
+  if (! /sbin/test -f ./dist/ufw_$UFWPKGNAME.idb); then
+    touch ./dist/ufw_$UFWPKGNAME.idb
+  fi
+
+  # Create a specfile, if it does not already exists.
+  if (! /sbin/test -f ./dist/ufw_$UFWPKGNAME.spec); then
+    createspec > ./dist/ufw_$UFWPKGNAME.spec
+    while true; do
+      echo -n "Start Software packager now? (y/n) "
+      read yn
+      case $yn in
+        y* | Y* ) swpkg -nofork; break;;
+        n* | N* ) break ;;
+        * ) echo "Answer y/n only" ;;
+      esac
+    done
+  fi
+
+else
+  echo "Errors occured"
+fi
+}
+
+
+case "$1" in
+    -l ) libdepends;;
+    -b ) bindepends;;
+    *  ) populate;;
+esac
+
+#   /\_/\              
+#   >^.^<.---.        Pookie
+#  _'-`-'     )\      was
+# (6--\ |--\ (`.`-.   here
+#    --'  --'  ``-' 
